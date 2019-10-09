@@ -36,6 +36,7 @@ void
 idt_init(void) {
      /* LAB1 YOUR CODE : STEP 2 */
      /* (1) Where are the entry addrs of each Interrupt Service Routine (ISR)?
+      *     由trapentry得知所有中断都由__alltraps处理，而其中 vectors.S 中存储了中断处理程序的入口地址
       *     All ISR's entry addrs are stored in __vectors. where is uintptr_t __vectors[] ?
       *     __vectors[] is in kern/trap/vector.S which is produced by tools/vector.c
       *     (try "make" command in lab1, then you will find vector.S in kern/trap DIR)
@@ -46,6 +47,18 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+     //kern/mm/mmu.h中定义SETGATE
+     extern uintptr_t __vectors[];//(1)
+     for(int i=0;i<256;i++)//参考答案写的是sizeof(idt)/sizeof(struct gatedesc)但实际上值都一样答案更规范而已
+     {//arg1表示处理函数的入口地址，arg2为0表示中断门，arg3段选择子(GD_KTEXT定义在memlayout.h中)
+     //#define GD_KTEXT    ((SEG_KTEXT) << 3)       arg4为__vectors[]数组内容 arg5设置特权级。中断都设置为内核级，即第0级
+         SETGATE(idt[i],0,GD_KTEXT,__vectors[i],DPL_KERNEL);//(2)使用SETGATE宏初始化idt
+     }
+     //从用户态权限切换到内核态权限T_SWITCH_TOK   用户是OU
+    //  SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+     SETGATE(idt[T_SWITCH_TOK], 1, KERNEL_CS, __vectors[T_SWITCH_TOK], 3);
+     lidt(&idt_pd);//(3)用lidt指令告诉CPU idt在哪，idt_pd参数被定义在该文件开始，其结构pseudodesc被定义在libs/x86.h
+
 }
 
 static const char *
@@ -135,10 +148,11 @@ print_regs(struct pushregs *regs) {
 }
 
 /* trap_dispatch - dispatch based on what type of trap occurred */
+struct trapframe switchk2u, *switchu2k;//创建trapeframe
+static struct trapframe *saved_tf;//challenge2中保存trapframe地址
 static void
 trap_dispatch(struct trapframe *tf) {
     char c;
-
     switch (tf->tf_trapno) {
     case IRQ_OFFSET + IRQ_TIMER:
         /* LAB1 YOUR CODE : STEP 3 */
@@ -147,6 +161,11 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+        ticks++;//TICK_NUM在开头被定义为100
+        if(ticks%TICK_NUM==0)
+        {
+            print_ticks();
+        }
         break;
     case IRQ_OFFSET + IRQ_COM1:
         c = cons_getc();
@@ -155,11 +174,59 @@ trap_dispatch(struct trapframe *tf) {
     case IRQ_OFFSET + IRQ_KBD:
         c = cons_getc();
         cprintf("kbd [%03d] %c\n", c, c);
+
+        //challenge2键盘中断
+        if (c == 0x30) { // 0切内核 ASCII
+		saved_tf = __move_up_stack2((uint32_t)(tf) + sizeof(struct trapframe) - 8, (uint32_t) tf, tf->tf_esp);
+		saved_tf->tf_cs = KERNEL_CS;
+		saved_tf->tf_ds = saved_tf->tf_es = saved_tf->tf_fs = saved_tf->tf_gs = KERNEL_DS;
+		asm volatile (
+				"movw %0, %%ss"
+				:
+				: "r"(KERNEL_DS)
+			     );
+	}
+	if (c == 0x33) { // 3切用户
+		saved_tf = (struct trapname*) ((uint32_t)(tf) - 8);
+
+		__move_down_stack2( (uint32_t)(tf) + sizeof(struct trapframe) - 8 , (uint32_t) tf );
+
+		saved_tf->tf_eflags |= FL_IOPL_MASK;
+		saved_tf->tf_cs = USER_CS;
+		saved_tf->tf_ds = saved_tf->tf_es = saved_tf->tf_fs = saved_tf->tf_ss = saved_tf->tf_gs = USER_DS;
+		saved_tf->tf_esp = (uint32_t)(saved_tf + 1);
+	}
         break;
     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
+    //将调用io所需权限降低，才能正常输出文本
     case T_SWITCH_TOU:
+        if (tf->tf_cs != USER_CS) {
+            //当前在内核态，需要建立切换到user所需的trapframe结构的数据switchktou
+            switchk2u = *tf;
+            //将CS,DS,ES,SS都设置为user
+            switchk2u.tf_cs = USER_CS;
+            switchk2u.tf_ds = switchk2u.tf_es = switchk2u.tf_ss = USER_DS;
+            switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+            //设置EFLAG的I/O特权位，使得在用户态可使用in/out指令
+            switchk2u.tf_eflags |= FL_IOPL_MASK;
+            //设置临时栈，指向switchktou，iret返回时，CPU会从switchktou恢复数据
+            *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+        }
+        break;
     case T_SWITCH_TOK:
-        panic("T_SWITCH_** ??\n");
+        if (tf->tf_cs != KERNEL_CS) {
+            //发出中断时CPU处于用户态，在处理完此中断后，CPU扔在内核态运行，
+            //所以把tf->tf_cs和tf->tf_ds都设置为内核代码段和内核数据段
+            tf->tf_cs = KERNEL_CS;
+            tf->tf_ds = tf->tf_es = KERNEL_DS;
+            //设置EFLAGS，让用户态不能执行in/out指令
+            tf->tf_eflags &= ~FL_IOPL_MASK;
+            switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+            //在栈中留出sizeof(tf-8)的空间把user的数据放过去
+            memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
+            //设置临时栈，指向switchktok，iret返回时，CPU会从switchktok恢复数据
+            *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
+        }
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:
@@ -177,6 +244,7 @@ trap_dispatch(struct trapframe *tf) {
 /* *
  * trap - handles or dispatches an exception/interrupt. if and when trap() returns,
  * the code in kern/trap/trapentry.S restores the old CPU state saved in the
+ * alltraps会call trap
  * trapframe and then uses the iret instruction to return from the exception.
  * */
 void

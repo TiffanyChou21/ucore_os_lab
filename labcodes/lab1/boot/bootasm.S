@@ -28,7 +28,7 @@ start:
     #  1MB wrap around to zero by default. This code undoes this.
 seta20.1:
     inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
-    testb $0x2, %al
+    testb $0x2, %al #从0x64内存地址中（映射到8042的status register）中读取8042的状态
     jnz seta20.1
 
     movb $0xd1, %al                                 # 0xd1 -> port 0x64
