@@ -119,9 +119,10 @@ struct Page {
     to_struct((le), struct Page, member)
 
 /* free_area_t - maintains a doubly linked list to record free (unused) pages */
+//用以维护一个双链表来记录未被使用的空页
 typedef struct {
-    list_entry_t free_list;         // the list header
-    unsigned int nr_free;           // # of free pages in this free list
+    list_entry_t free_list;// the list header链表头指针
+    unsigned int nr_free; // # of free pages in this free list
 } free_area_t;
 
 #endif /* !__ASSEMBLER__ */

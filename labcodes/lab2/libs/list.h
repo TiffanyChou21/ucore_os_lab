@@ -17,7 +17,6 @@
 struct list_entry {
     struct list_entry *prev, *next;
 };
-
 typedef struct list_entry list_entry_t;
 
 static inline void list_init(list_entry_t *elm) __attribute__((always_inline));

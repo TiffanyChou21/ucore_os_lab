@@ -100,49 +100,53 @@ free_area_t free_area;
 
 static void
 default_init(void) {
-    list_init(&free_list);
-    nr_free = 0;
+    list_init(&free_list);//free_list记录空页
+    nr_free = 0;//nr_free空页总数
 }
 
 static void
 default_init_memmap(struct Page *base, size_t n) {
-    assert(n > 0);
-    struct Page *p = base;
-    for (; p != base + n; p ++) {
-        assert(PageReserved(p));
-        p->flags = p->property = 0;
-        set_page_ref(p, 0);
+    assert(n > 0);//assert宏，为假则打印错误并终止运行
+    struct Page *p = base;//声明一个base的页
+    for (; p != base + n; p ++) {//初始化起始地址为base的n个连续物理页
+        assert(PageReserved(p));//确保此页不是保留页，是则中止
+        p->flags = p->property = 0;//空且非首页则标志位置为0
+        set_page_ref(p, 0);//pmm.c 清除引用此页的虚拟页的个数
     }
-    base->property = n;
-    SetPageProperty(base);
-    nr_free += n;
-    list_add(&free_list, &(base->page_link));
+    base->property = n;//首页设为n表示连续空页值为n
+    SetPageProperty(base);//base设为保留页
+    nr_free += n;//空闲页总数+n
+    list_add_before(&free_list, &(base->page_link));//加入空闲链表
 }
 
 static struct Page *
 default_alloc_pages(size_t n) {
-    assert(n > 0);
+    assert(n > 0);//保证n输入正确
+    //找不到这样的块返回NULL4.2
     if (n > nr_free) {
         return NULL;
     }
     struct Page *page = NULL;
-    list_entry_t *le = &free_list;
-    while ((le = list_next(le)) != &free_list) {
+    list_entry_t *le = &free_list;//声明一个free list的头
+    // TODO: optimize (next-fit)
+    while ((le = list_next(le)) != &free_list) {//遍历整个链表
+        //转换为页并且检查property是否≥n
         struct Page *p = le2page(le, page_link);
-        if (p->property >= n) {
+        if (p->property >= n) {//找到可以分配的
             page = p;
             break;
         }
     }
-    if (page != NULL) {
-        list_del(&(page->page_link));
-        if (page->property > n) {
+    if (page != NULL) {//无论找没找到，只要不为空
+        if (page->property > n) {//页块大小大于所需n则分隔
             struct Page *p = page + n;
             p->property = page->property - n;
-            list_add(&free_list, &(p->page_link));
-    }
-        nr_free -= n;
-        ClearPageProperty(page);
+            SetPageProperty(p);
+            list_add_after(&(page->page_link), &(p->page_link));
+        }
+        list_del(&(page->page_link));//删除与链表链接
+        nr_free -= n;//将分配出去的部分减去
+        ClearPageProperty(page);//设为保留
     }
     return page;
 }
@@ -152,21 +156,27 @@ default_free_pages(struct Page *base, size_t n) {
     assert(n > 0);
     struct Page *p = base;
     for (; p != base + n; p ++) {
-        assert(!PageReserved(p) && !PageProperty(p));
+        assert(!PageReserved(p) && !PageProperty(p));//检查需要释放的页块是否为保留或是已被分配出去
         p->flags = 0;
-        set_page_ref(p, 0);
+        set_page_ref(p, 0);//引用次数改为0
     }
     base->property = n;
     SetPageProperty(base);
     list_entry_t *le = list_next(&free_list);
-    while (le != &free_list) {
+    while (le != &free_list) {//找到原来应该被释放的位置
         p = le2page(le, page_link);
         le = list_next(le);
-        if (base + base->property == p) {
-            base->property += p->property;
+        // TODO: optimize
+        //高位则向高地址合并
+        if (base + base->property == p) {//满足base+n==p尝试向后合并空页
+        //能合并则base的连续空页加上p的连续空页，p的连续空页置0
+        //如果之后的不能，则p→property全都为0
+            base->property += p->property;//修改标志位
             ClearPageProperty(p);
             list_del(&(p->page_link));
         }
+        // 低位且在范围内，则向低地址合并
+    //获取base的前一个页，如果为空，则查找之前所有的空页合并
         else if (p + p->property == base) {
             p->property += base->property;
             ClearPageProperty(base);
@@ -175,7 +185,16 @@ default_free_pages(struct Page *base, size_t n) {
         }
     }
     nr_free += n;
-    list_add(&free_list, &(base->page_link));
+    le = list_next(&free_list);
+    while (le != &free_list) {
+        p = le2page(le, page_link);
+        if (base + base->property <= p) {
+            assert(base + base->property != p);
+            break;
+        }
+        le = list_next(le);
+    }
+    list_add_before(le, &(base->page_link));//从这一位置开始插入释放数量的空页
 }
 
 static size_t
@@ -308,4 +327,3 @@ const struct pmm_manager default_pmm_manager = {
     .nr_free_pages = default_nr_free_pages,
     .check = default_check,
 };
-

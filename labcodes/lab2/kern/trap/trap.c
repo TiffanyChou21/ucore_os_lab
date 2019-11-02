@@ -46,6 +46,18 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+     //kern/mm/mmu.h中定义SETGATE
+     extern uintptr_t __vectors[];//(1)
+     for(int i=0;i<256;i++)//参考答案写的是sizeof(idt)/sizeof(struct gatedesc)但实际上值都一样答案更规范而已
+     {//arg1表示处理函数的入口地址，arg2为0表示中断门，arg3段选择子(GD_KTEXT定义在memlayout.h中)
+     //#define GD_KTEXT    ((SEG_KTEXT) << 3)       arg4为__vectors[]数组内容 arg5设置特权级。中断都设置为内核级，即第0级
+         SETGATE(idt[i],0,GD_KTEXT,__vectors[i],DPL_KERNEL);//(2)使用SETGATE宏初始化idt
+     }
+     //从用户态权限切换到内核态权限T_SWITCH_TOK   用户是OU
+    //  SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+     SETGATE(idt[T_SWITCH_TOK], 1, KERNEL_CS, __vectors[T_SWITCH_TOK], 3);
+     lidt(&idt_pd);//(3)用lidt指令告诉CPU idt在哪，idt_pd参数被定义在该文件开始，其结构pseudodesc被定义在libs/x86.h
+
 }
 
 static const char *
@@ -135,6 +147,7 @@ print_regs(struct pushregs *regs) {
 }
 
 /* trap_dispatch - dispatch based on what type of trap occurred */
+struct trapframe switchk2u, *switchu2k;//创建trapeframe
 static void
 trap_dispatch(struct trapframe *tf) {
     char c;
@@ -147,6 +160,11 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+        ticks++;//TICK_NUM在开头被定义为100
+        if(ticks%TICK_NUM==0)
+        {
+            print_ticks();
+        }
         break;
     case IRQ_OFFSET + IRQ_COM1:
         c = cons_getc();
@@ -158,8 +176,33 @@ trap_dispatch(struct trapframe *tf) {
         break;
     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
     case T_SWITCH_TOU:
+        if (tf->tf_cs != USER_CS) {
+            //当前在内核态，需要建立切换到user所需的trapframe结构的数据switchktou
+            switchk2u = *tf;
+            //将CS,DS,ES,SS都设置为user
+            switchk2u.tf_cs = USER_CS;
+            switchk2u.tf_ds = switchk2u.tf_es = switchk2u.tf_ss = USER_DS;
+            switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+            //设置EFLAG的I/O特权位，使得在用户态可使用in/out指令
+            switchk2u.tf_eflags |= FL_IOPL_MASK;
+            //设置临时栈，指向switchktou，iret返回时，CPU会从switchktou恢复数据
+            *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+        }
+        break;
     case T_SWITCH_TOK:
-        panic("T_SWITCH_** ??\n");
+        if (tf->tf_cs != KERNEL_CS) {
+            //发出中断时CPU处于用户态，在处理完此中断后，CPU扔在内核态运行，
+            //所以把tf->tf_cs和tf->tf_ds都设置为内核代码段和内核数据段
+            tf->tf_cs = KERNEL_CS;
+            tf->tf_ds = tf->tf_es = KERNEL_DS;
+            //设置EFLAGS，让用户态不能执行in/out指令
+            tf->tf_eflags &= ~FL_IOPL_MASK;
+            switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+            //在栈中留出sizeof(tf-8)的空间把user的数据放过去
+            memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
+            //设置临时栈，指向switchktok，iret返回时，CPU会从switchktok恢复数据
+            *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
+        }
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:

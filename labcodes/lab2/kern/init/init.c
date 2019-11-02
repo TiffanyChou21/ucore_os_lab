@@ -38,7 +38,7 @@ kern_init(void) {
 
     //LAB1: CAHLLENGE 1 If you try to do it, uncomment lab1_switch_test()
     // user/kernel mode switch test
-    //lab1_switch_test();
+    // lab1_switch_test();
 
     /* do nothing */
     while (1);
@@ -85,11 +85,25 @@ lab1_print_cur_status(void) {
 static void
 lab1_switch_to_user(void) {
     //LAB1 CHALLENGE 1 : TODO
+    asm volatile (
+        //设置新栈顶指向switchktou，当返回出栈，则出栈switchktou 中的值。
+	    "sub $0x8, %%esp \n"//用来存放中断iret的返回ss和sp
+	    "int %0 \n"//int访问 T_SWITCH_TOU 中断，debug的时候删去
+	    "movl %%ebp, %%esp"//恢复栈指针
+	    : 
+	    : "i"(T_SWITCH_TOU)
+	);
 }
 
 static void
 lab1_switch_to_kernel(void) {
     //LAB1 CHALLENGE 1 :  TODO
+    asm volatile (
+	    "int %0 \n"
+	    "movl %%ebp, %%esp \n"
+	    : 
+	    : "i"(T_SWITCH_TOK)
+	);
 }
 
 static void
