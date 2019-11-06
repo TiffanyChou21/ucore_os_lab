@@ -48,7 +48,7 @@ list_empty()//判断链表是否为空
 list_next()list_prev()//获取链表的前一项和后一项
 ```
 
-​	另一种复杂的办法是将普通链表结构转化为页，有相关宏le2page在memlayout.h中
+​	另一种复杂的办法是将双向链表结构转化为页，有相关宏le2page在memlayout.h中
 
 ```c
 //memlayout.h
@@ -66,6 +66,8 @@ struct Page {//Page结构定义
 
 ​	该函数可被直接使用，用以初始化free_list和将nr_free置0
 
+​	初始化一个空的双向链表
+
 <img src="/Users/zhouchenfei/Desktop/OS截图/lab2-1.png" alt="lab2-1" style="zoom:40%;" />
 
 ​	free_area_t结构定义在memlayout.h中
@@ -74,17 +76,17 @@ struct Page {//Page结构定义
 
 #### default_init_memmap
 
-1. 首先初始化每个在memelayout.h中定义的page
-   - p→flags应被置为PG_property，表示该页是可用的以及使用p->page_link将页链接到free_list里面，最后更正nr_free的数目
-   - 根据注释提示将default_init_memmap改写成如下，主要变化是①list_add变为list_add_before和SetPageProperty一起被移到循环内，表示后续的连续空页要被设为保留页然后链接成一个双向链表
+1. 首先初始化每个在memelayout.h中定义的page(物理页)，将全部的可分配物理页视为一大块空闲块加入空闲表。
+   - p→flags应被置为PG_property(表示是一个有连续地址且可以被分配的空闲块的首页)，使用p->page_link将页链接到free_list里面，最后更正nr_free的数目
+   - 根据注释提示将default_init_memmap改写成如下：
 
 <img src="/Users/zhouchenfei/Desktop/OS截图/lab2-3.png" alt="lab2-3" style="zoom:50%;" />
 
-​	整个default_init_memmap函数的作用是传入base页地址及生成物理页的个数n，将物理页初始化设为保留页后与base连接，由于base既是空页也是首页所以将其property设为n，nr_free空页数设为n(虽然写了好多，但其实只改了最后一句，双向链表，所以头指针的前一个就是最后一个)
+(虽然写了好多，但其实只改了最后一句，双向链表，所以头指针的前一个就是最后一个)
 
 #### default_alloc_pages
 
-​	该函数作用是在free list中找到一个大小≥n的块重新分配其大小并返回这个分配后的块地址
+​	该函数作用是在free list中找到一个大小≥n的块重新分配其大小并返回这个分配后的块地址(first fit是按照地址从小到大检索)
 
 ​	<img src="/Users/zhouchenfei/Desktop/OS截图/lab2-4.png" alt="lab2-4" style="zoom:40%;" />
 
@@ -92,7 +94,9 @@ struct Page {//Page结构定义
 
 #### default_free_pages
 
-​	该函数重新将页链接到free list，也可以是将小的空块合并到大块中<img src="/Users/zhouchenfei/Desktop/OS截图/lab2-5.png" alt="lab2-5" style="zoom:50%;" />
+​	该函数重新将页链接到free list(相邻的合并)，也可以是将小的空块合并到大块中
+
+<img src="/Users/zhouchenfei/Desktop/OS截图/lab2-5.png" alt="lab2-5" style="zoom:50%;" />
 
 ​	代码基本都做了改动，主要是合并部分的判断和操作，因为原代码是从头找到尾，找是否有free块相邻的块，但其实根据first fit，只要照着第一个判断出来然后合并就可以了
 
@@ -130,7 +134,7 @@ PTE_U 0x004 //表示可以读取对应地址的物理内存页内容
 
 ​	表示页式管理将32位的线性地址拆分为三部分：Directory、Table和Offset，ucore页式管理通过一个二级的页表实现。一级页表存放在高10位中，二级页表存放于中间10位中，最后的12位表示偏移量，据此可以证明，页大小为4KB（2的12次方，4096）
 
-​	Directory为一级页表，`PDX(la)`可以获取Directory；Table为二级页表，`PTX(la)`可以获取Table
+​	Directory为一级页表，`PDX(la)`可以获取Directory对应虚拟地址la的索引；Table为二级页表，`PTX(la)`可以获取Table对应虚拟地址的索引
 
 ​	寻找虚拟地址对应的页表项的主要步骤：
 
@@ -138,7 +142,7 @@ PTE_U 0x004 //表示可以读取对应地址的物理内存页内容
 
 ​	②成功获得一个page，清空，并把引用次数+1(设置为1)，并在Directory中建立该项并返回
 
-​	get_pte的功能是根据基址返回pte虚拟线性地址，如果pte不存在就分配页，其实现如下：
+​	get_pte的功能是根据基址返回pte虚拟线性地址，如果pte不存在就分配页，实现如下
 
 <img src="/Users/zhouchenfei/Desktop/OS截图/lab2-7.png" alt="lab2-7" style="zoom:33%;" />
 
@@ -180,19 +184,21 @@ PTE_U 0x004 //表示可以读取对应地址的物理内存页内容
 >
 > 当释放一个包含某虚地址的物理内存页时，需要让对应此物理内存页的管理数据结构Page做相关的清除处理，使得此物理内存页成为空闲；另外还需把表示虚地址与物理地址对应关系的二级页表项清除。请仔细查看和理解page_remove_pte函数中的注释。为此，需要补全在 kern/mm/pmm.c中的page_remove_pte函数。
 
-​	page_remove_pte函数的功能是释放与la对应线性地址相关的Page，并clear与之相关的pte无效
+​	page_remove_pte函数的功能是释放与la对应pa相关的Page，并clear与之相关的pte使其无效
 
 ​	阅读注释给出的宏及其定义
 
 ```c
 //宏 OR 函数
-struct Page *page pte2page(*ptep) // //从ptep值中获取相应的页面 /kern/mm/pmm.h
+struct Page *page pte2page(*ptep) // 从ptep值中获取相应的Page结构 /kern/mm/pmm.h
 free_page//释放一个页  /kern/mm/pmm.h
 page_ref_dec(page)//减少该页的引用次数，返回剩下的引用次数 /kern/mm/pmm.h
 tlb_invalidate(pde_t *pgdir, uintptr_t la)//当修改的页表目前正在被进程使用时，使之无效  /kern/mm/pmm.h
 //define
 PTE_P 0x001 //表示物理内存页存在
 ```
+
+​	步骤：①将物理页的引用数目减一，若为零，说明一级只引用了一次直接释放②将页Directory项清零③刷新TLB。
 
 <img src="/Users/zhouchenfei/Desktop/OS截图/lab2-9.png" alt="lab2-9" style="zoom:33%;" />
 
@@ -201,19 +207,39 @@ PTE_P 0x001 //表示物理内存页存在
 > 1. 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
 > 2. 如果希望虚拟地址与物理地址相等，则需要如何修改lab2，完成此事？ **鼓励通过编程来具体完成这个问题**
 
-1. 存在对应关系：页表项中存放着对应的物理页的物理地址，可以通过这个物理地址来获取对应的Page数组的对应项，具体做法为将物理地址除以一个页的大小，然后乘上一个Page结构的大小获得偏移量，使用偏移量加上Page数组的基地址即可得到对应Page项的地址
+1. 存在对应关系：页目录或页表项中存放着对应的物理页的物理地址，可以通过这个物理地址来获取对应的Page数组的对应项，具体做法为将物理地址除以一个页的大小，然后乘上一个Page结构的大小获得偏移量，使用偏移量加上Page数组的基地址即可得到对应Page项的地址
 
 2. 阅读实验参考书“系统执行中地址映射的四个阶段”
 
    物理地址和虚拟地址之间存在偏移量
 
-   物理地址 + KERNBASE = 虚拟地址
+   物理地址 + KERNBASE(0xC0000000) = 虚拟地址=线性地址
 
    所以，KERNBASE = 0时，物理地址 = 虚拟地址，把memlayout.h中改为
 
 ![lab2-10](/Users/zhouchenfei/Desktop/OS截图/lab2-10.png)
 
-​	代码更改完毕后分别执行`make grade` `make qemu  ` 得到下列结果
+​	并按照lab1修改tools/kernel.ld为
+
+```c
+SECTIONS {
+    /* Load the kernel at this address: "." means the current address */
+    . = 0x100000;//原来是0xC0100000
+...
+```
+
+​	注释掉kern/mm/pmm.c中这一部分代码
+
+```
+//disable the map of virtual_addr 0~4M
+// boot_pgdir[0] = 0;
+
+//now the basic virtual memory map(see memalyout.h) is established.
+//check the correctness of the basic virtual memory map.
+// check_boot_pgdir();
+```
+
+代码更改完毕后分别执行`make grade` `make qemu  ` 得到下列结果
 
 <img src="/Users/zhouchenfei/Desktop/OS截图/lab2-13.jpg" alt="lab2-11" style="zoom:30%;" />
 

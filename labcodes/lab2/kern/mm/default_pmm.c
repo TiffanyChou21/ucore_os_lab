@@ -127,7 +127,7 @@ default_alloc_pages(size_t n) {
         return NULL;
     }
     struct Page *page = NULL;
-    list_entry_t *le = &free_list;//声明一个free list的头
+    list_entry_t *le = &free_list;
     // TODO: optimize (next-fit)
     while ((le = list_next(le)) != &free_list) {//遍历整个链表
         //转换为页并且检查property是否≥n
