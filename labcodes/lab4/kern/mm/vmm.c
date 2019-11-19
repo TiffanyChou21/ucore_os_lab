@@ -336,12 +336,12 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
      *    continue process
      */
     uint32_t perm = PTE_U;
-    if (vma->vm_flags & VM_WRITE) {
-        perm |= PTE_W;
+    if (vma->vm_flags & VM_WRITE) {  //VM_WRITE   0x00000002
+        perm |= PTE_W;    //可写的
     }
     addr = ROUNDDOWN(addr, PGSIZE);
-
-    ret = -E_NO_MEM;
+    //把原来的addr按PSIZE=4096的倍数向下舍去
+    ret = -E_NO_MEM;//E_NO_MEM 4 因为内存不足请求失败
 
     pte_t *ptep=NULL;
     /*LAB3 EXERCISE 1: YOUR CODE
@@ -393,6 +393,31 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         }
    }
 #endif
+    // 获取当前发生缺页的虚拟页对应的PTE
+    //参数3是create位1表示没有则创建
+    ptep = get_pte(mm->pgdir, addr, 1); 
+    if (*ptep == 0) { 
+        // 如果需要的物理页是没有分配(没有映射)且没有被换出到外存中
+        //addr就是前面的经过rounddown的虚拟页地址
+        //perm 是前面PTE_W   PTE_U处理后有权限的flag
+        struct Page* page = pgdir_alloc_page(mm->pgdir, addr, perm); 
+        // 分配物理页，并且与对应的虚拟页建立映射关系
+    }  
+    else {
+        if (swap_init_ok) { // 判断交换机制是否正确初始化
+            struct Page *page = NULL;
+            swap_in(mm, addr, &page); //将物理页换入到内存中
+            page_insert(mm->pgdir, page, addr, perm); //将物理页与虚拟页建立映射关系
+            swap_map_swappable(mm, addr, page, 1); // 设置当前的物理页为可交换的
+            page->pra_vaddr = addr; 
+            // 同时在物理页中维护其对应到的虚拟页的信息
+            // pra_vaddr用来记录此物理页对应的虚拟页起始地址        
+        } 
+        else {
+            cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
+            goto failed;
+        }
+    }
    ret = 0;
 failed:
     return ret;

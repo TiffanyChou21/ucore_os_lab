@@ -185,6 +185,9 @@ static void slob_free(void *block, int size)
 }
 
 
+void check_slab(void) {
+  cprintf("check_slab() succeeded!\n");
+}
 
 void
 slob_init(void) {

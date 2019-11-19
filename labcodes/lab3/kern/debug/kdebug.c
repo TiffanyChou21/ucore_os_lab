@@ -304,7 +304,8 @@ print_stackframe(void) {
       *    (3.5) popup a calling stackframe
       *           NOTICE: the calling funciton's return addr eip  = ss:[ebp+4]
       *                   the calling funciton's ebp = ss:[ebp]
-      */uint32_t ebp=read_ebp(),eip=read_eip();//获取当前ebp(内联)和eip(非内联)
+      */
+     uint32_t ebp=read_ebp(),eip=read_eip();//获取当前ebp(内联)和eip(非内联)
      for(int i=0;i<STACKFRAME_DEPTH && ebp!=0;i++)
     //  ebp不为0就变成最一开始的那个值，如果去掉这个条件会反复输出同一个函数的信息<UNKNOWN>
      {
