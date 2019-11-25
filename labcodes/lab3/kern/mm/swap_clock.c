@@ -53,7 +53,7 @@ _clock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tic
         }
         p = list_next(p);
      } while (p != head);
-     // 第二次找(1,0)并将(1,1)改为(0,1)
+     // 第二次找(0,1)并将(1,1)改为(0,1)
      if (selected == NULL)
         do {
             if (GET_ACCESSED_FLAG(mm->pgdir, p) == 0 && GET_DIRTY_FLAG(mm->pgdir, p)) {
@@ -63,7 +63,7 @@ _clock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tic
             CLEAR_ACCESSED_FLAG(mm->pgdir, p);
             p = list_next(p);
         } while (p != head);
-     // 第三次还找(0,0)
+     // 第三次还找(0,0)先
      if (selected == NULL)
         do {
             if (GET_ACCESSED_FLAG(mm->pgdir, p) == 0 && GET_DIRTY_FLAG(mm->pgdir, p) == 0) {
@@ -72,7 +72,7 @@ _clock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tic
             }
             p = list_next(p);
         } while (p != head);
-     // 第三次
+     // 第三次  找(0,1)
      if (selected == NULL)
         do {
             if (GET_ACCESSED_FLAG(mm->pgdir, p) == 0 && GET_DIRTY_FLAG(mm->pgdir, p)) {

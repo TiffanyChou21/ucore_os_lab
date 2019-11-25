@@ -68,7 +68,7 @@ _fifo_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick
      //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
      //(2)  set the addr of addr of this page to ptr_page
      list_entry_t *le = list_next(head); // 取出链表头，即最先进入的物理页
-     assert(le != head); // 确保非空
+     assert(le != head); // 确保不是head
      //pra_page_link是Page结构中用来构造按第一次访问时间排序的链表
      struct Page *page = le2page(le, pra_page_link);//找到其对应的物理页的Page结构
      list_del(le); // 从链表上删除将被换出的物理页

@@ -306,17 +306,18 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     int ret = -E_INVAL;
     //try to find a vma which include addr
     struct vma_struct *vma = find_vma(mm, addr);
-
+    //找到对应地址和mm的vma
     pgfault_num++;
     //If the addr is in the range of a mm's vma?
-    if (vma == NULL || vma->vm_start > addr) {
+    if (vma == NULL || vma->vm_start > addr) {//不合法地址或不在范围内
         cprintf("not valid addr %x, and  can not find it in vma\n", addr);
         goto failed;
     }
-    //check the error_code
+    //check the error_code检查error code
     switch (error_code & 3) {
-    default:
+    default://默认3即合理的
             /* error code flag : default is 3 ( W/R=1, P=1): write, present */
+            //以下是各种形式的报错
     case 2: /* error code flag : (W/R=1, P=0): write, not present */
         if (!(vma->vm_flags & VM_WRITE)) {
             cprintf("do_pgfault failed: error code flag = write AND not present, but the addr's vma cannot write\n");
@@ -407,7 +408,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         // 分配物理页，并且与对应的虚拟页建立映射关系
     }  
     else {
-        if (swap_init_ok) { // 判断交换机制是否正确初始化
+        if (swap_init_ok) { // 判断交换机制是否正确初始化swapinit后会将该变量置1
             struct Page *page = NULL;
             swap_in(mm, addr, &page); //将物理页换入到内存中
             page_insert(mm->pgdir, page, addr, perm); //将物理页与虚拟页建立映射关系
