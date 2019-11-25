@@ -2,7 +2,7 @@
 
 ## 问题发现与改进
 
-- 这次像lab3一样的打patch出现了问题，然后使用git提交版本号打也出现了小的问题，然后通过labcodes_answer打patch就成功了。。并不知道为什么，可能answer的patch和Makefile就是对的吧\_(:з」∠)_不过反正这个代码是为了make grade通过，所以不是我以前写了一大堆注释的不简洁的代码肯定更好
+- 这次像lab3一样的打patch出现了问题，然后使用git提交版本号打也出现了小的问题，然后通过labcodes_answer打patch就成功了。。并不知道为什么，可能answer的patch和Makefile就是对的吧\_(:з」∠)_不过反正这个代码是为了make grade通过，所以不是我以前写了一大堆注释的不简洁的代码，肯定效果更好，不会因为多的乱七八糟的注释而变得混乱
 
 - 第一次运行`make qemu`以后得到了理想的输出，但是和示例输出不一样的是，我多了中断的堆栈信息
 
@@ -33,17 +33,17 @@
 根据提示先行查看proc结构的成员变量都是什么以及功能是什么
 
 ```c
-//kern/process/proc.h
+//kern/process/proc.h   ❇︎表示本lab比较重要
 struct proc_struct {
-    enum proc_state state;//进程所处的状态 未初始化、sleep、Zoombie、运行
-    int pid;              //进程ID
+    enum proc_state state;//进程所处的状态 未初始化、sleep、Zoombie、运行  ❇︎
+    int pid;              //进程ID                                    ❇︎
     int runs;             //运行时间
-    uintptr_t kstack;     //内核栈，记录了分配给该线程的内核栈的位置。对内核线程是运行时的程序使用的栈；而对是发生特权级改变的时候使保存被打断的硬件信息用的栈
+    uintptr_t kstack;     //内核栈，记录了分配给该线程的内核栈的位置。对内核线程是运行时的程序使用的栈；而对是发生特权级改变的时候使保存被打断的硬件信息用的栈          ❇︎
     volatile bool need_resched;// 对于释放CPU时是否需要调度的值？
     struct proc_struct *parent;// 父进程
     struct mm_struct *mm;// 内存管理的信息，包括内存映射列表、页表指针等等，这里其实不用考虑换页
-    struct context context;  // 进程的上下文，用于进程切换
-    struct trapframe *tf;  //中断帧的指针 指向当前中断状态
+    struct context context;  // 进程的上下文，用于进程切换，通用寄存器等     ❇︎
+    struct trapframe *tf;  //中断帧的指针 指向当前中断状态                 ❇︎
     uintptr_t cr3;  // 保存页表的物理地址PDT 进程切换的时候方便直接使用lcr3实现页表切换
     uint32_t flags;    //标志位
     char name[PROC_NAME_LEN + 1]; //进程名
@@ -81,11 +81,13 @@ struct context {
 };
 ```
 
+​	参考proc_run()和copy_thread()
+
 - **tf**：中断帧，调度往往发生在时钟中断的时候，所以调度执行进程的时候，需要进行中断返回
 
   tf变量的作用在于在构造出了新的线程的时候，如果要将控制权交给这个线程，是使用中断返回的方式进行的，因此需要构造出一个伪造的中断返回现场，即trapframe，使得可以正确地将控制权转交给新的线程
 
-  具体切换到新的线程的做法为，调用switch_to(switch.S)函数，然后在该函数中进行函数返回，直接跳转到forkret函数，最终进行中断返回函数__trapret，之后便可以根据tf中构造的中断返回地址切换到新的线程
+  具体切换到新的线程的做法为，调用switch_to(switch.S)函数，然后在该函数中进行函数返回，直接跳转到forkret函数，最终进入中断返回函数__trapret，之后便可以根据tf中构造的中断返回地址切换到新的线程
 
 ## 练习二
 
@@ -103,12 +105,12 @@ struct context {
 
 ```c
 alloc_proc//proc.c刚完成的 分配一个进程
-setup_kstack//proc.c给线程内核栈分配一个KSTACKPAGE(2Page 8KB)的页
+setup_kstack//proc.c给线程内核栈分配一个大小为KSTACKPAGE(2Page 8KB)的页
 copy_mm//proc.c 根据clone_flags对虚拟内存空间进行拷贝 如果和CLONE_VM(pmm.h)一致则共享否则赋值
-copy_thread//proc.c 设置tf
+copy_thread//proc.c 拷贝设置tf以及context(返回eip和栈顶指针esp)中堆栈的信息
 hash_proc//proc.c  把进程加到哈希表里
 get_pid//proc.c  为新进程创建一个pid
-wakup_proc//通过将状态置为runable达到唤醒进程的目的
+wakup_proc//sched.c  通过将状态置为runable达到唤醒进程的目的
 ```
 
 ### 实现
@@ -124,6 +126,8 @@ wakup_proc//通过将状态置为runable达到唤醒进程的目的
 能做到
 
 查看`get_pid`代码
+
+<img src="/Users/zhouchenfei/Desktop/OS截图/lab4-8.png" alt="lab4-8" style="zoom:33%;" />
 
 - 在该函数中使用了两个静态局部变量`next_safe`和`last_pid`，在每次进入`get_pid`函数的时候，这两个变量的数值之间的取值均是合法(尚未使用)的`pid`，如果有严格的`next_safe > last_pid + 1`，就可以直接取`last_pid + 1`作为新的`pid`(`last_pid`就是上一次分配的`PID`)
 
@@ -147,9 +151,9 @@ void proc_run(struct proc_struct *proc) {
         struct proc_struct *prev = current, *next = proc;
         local_intr_save(intr_flag);//sync.h 关闭中断
         {
-            current = proc;
+            current = proc;    //current->将要执行的process
             load_esp0(next->kstack + KSTACKSIZE);//pmm.c 设置TSS
-            lcr3(next->cr3);// 修改当前cr3为需要运行线程的页目录表PDT
+            lcr3(next->cr3);// libs/x86.h 内联编译 修改当前cr3为需要运行线程的页目录表PDT
             switch_to(&(prev->context), &(next->context));//切换到新的线程
         }
         local_intr_restore(intr_flag);//恢复中断
@@ -157,8 +161,8 @@ void proc_run(struct proc_struct *proc) {
 }
 ```
 
-- 保存FL_IF(中断标志位)并禁止中断
-- 将current指针指向将要执行的进程，设置任务状态段ts中特权态0下的栈顶指针`esp0`为next线程的内核栈栈顶，即next->kstack + KSTACKSIZE
+- 保存FL_IF(中断标志位intr_flag)并禁止中断
+- 将current指针指向将要执行的进程，设置`任务状态段ts`中特权态0下的栈顶指针`esp0`为将要执行线程(next)的内核栈栈顶，即next->kstack + KSTACKSIZE
 - 加载新的页表，设置CR3寄存器的值为`next->cr3`(由于lab4都是内核进程，所以这一步其实没用)
 - 调用switch_to进行切换
 - 当执行proc_run的进程恢复执行之后，恢复FL_IF
@@ -167,7 +171,7 @@ void proc_run(struct proc_struct *proc) {
 
 > 查看init_proc及运行结果可得
 
-- 两个：idleproc和initproc
+- 两个：idleproc(pid=0)和initproc(pid=1)
   - idleproc  最初的内核线程，在完成新的内核线程的创建以及各种初始化工作之后，进入死循环不断寻找可以调度的任务执行
   - initproc  用于打印"Hello World"的线程
 - 该语句作用是关闭中断，使得在这个语句块内的执行内容不会被中断打断，是一个原子操作

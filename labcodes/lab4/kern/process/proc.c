@@ -102,6 +102,19 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
+        proc->state = PROC_UNINIT; // 状态尚未初始化
+        proc->cr3 = boot_cr3;    //pmm.c
+        proc->pid = -1;      
+        proc->runs = 0; // 对其他成员变量清零处理
+        proc->kstack = 0;
+        proc->need_resched = 0;
+        proc->parent = NULL;
+        proc->mm = NULL;
+        memset(&proc->context, 0, sizeof(struct context)); 
+        // 使用memset函数清零占用空间较大的成员变量，如数组，结构体等
+        proc->tf = NULL;
+        proc->flags = 0;
+        memset(proc->name, 0, PROC_NAME_LEN);
     }
     return proc;
 }
@@ -128,18 +141,19 @@ get_pid(void) {
     struct proc_struct *proc;
     list_entry_t *list = &proc_list, *le;
     static int next_safe = MAX_PID, last_pid = MAX_PID;
+    //如果next_safe > last_pid + 1成立，以下两个if判断之后直接返回即可
     if (++ last_pid >= MAX_PID) {
         last_pid = 1;
         goto inside;
     }
-    if (last_pid >= next_safe) {
+    if (last_pid >= next_safe) {//不成立
     inside:
         next_safe = MAX_PID;
     repeat:
         le = list;
         while ((le = list_next(le)) != list) {
             proc = le2proc(le, list_link);
-            if (proc->pid == last_pid) {
+            if (proc->pid == last_pid) {//循环找一个(last_pid,next_safe)之间的
                 if (++ last_pid >= next_safe) {
                     if (last_pid >= MAX_PID) {
                         last_pid = 1;
@@ -296,6 +310,21 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     //    5. insert proc_struct into hash_list && proc_list
     //    6. call wakeup_proc to make the new child process RUNNABLE
     //    7. set ret vaule using child proc's pid
+    // 为新线程分配PCB
+    if ((proc = alloc_proc()) == NULL) 
+        goto fork_out; // 判断是否分配到内存空间
+    assert(setup_kstack(proc) == 0);  
+    // 设置内核栈
+    assert(copy_mm(clone_flags, proc) == 0);  
+    // 对虚拟内存空间进行拷贝，lab4内核线程之间共享一个虚拟内存空间，所以并不需要进行任何操作
+    copy_thread(proc, stack, tf); 
+    // 在内核栈上面设置伪造好的tf，便于利用iret命令将控制权转移给新的线程
+    proc->pid = get_pid(); // 创建pid
+    hash_proc(proc); // 将线程放入使用hash表，加速查找
+    nr_process ++; // 全局线程数加1
+    list_add(&proc_list, &proc->list_link); //将线程加入链表
+    wakeup_proc(proc); // 唤醒线程，即将该线程的状态设置为可以运行
+    ret = proc->pid; // 返回新线程的pid
 fork_out:
     return ret;
 
