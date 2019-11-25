@@ -39,7 +39,7 @@ struct proc_struct {
     int pid;              //进程ID                                    ❇︎
     int runs;             //运行时间
     uintptr_t kstack;     //内核栈，记录了分配给该线程的内核栈的位置。对内核线程是运行时的程序使用的栈；而对是发生特权级改变的时候使保存被打断的硬件信息用的栈          ❇︎
-    volatile bool need_resched;// 对于释放CPU时是否需要调度的值？
+    volatile bool need_resched;// 需要被调度，即如果为1则需要调度器调度其他的process
     struct proc_struct *parent;// 父进程
     struct mm_struct *mm;// 内存管理的信息，包括内存映射列表、页表指针等等，这里其实不用考虑换页
     struct context context;  // 进程的上下文，用于进程切换，通用寄存器等     ❇︎
@@ -107,7 +107,7 @@ struct context {
 alloc_proc//proc.c刚完成的 分配一个进程
 setup_kstack//proc.c给线程内核栈分配一个大小为KSTACKPAGE(2Page 8KB)的页
 copy_mm//proc.c 根据clone_flags对虚拟内存空间进行拷贝 如果和CLONE_VM(pmm.h)一致则共享否则赋值
-copy_thread//proc.c 拷贝设置tf以及context(返回eip和栈顶指针esp)中堆栈的信息
+copy_thread//proc.c 拷贝设置tf以及context(返回eip和中断帧中的栈顶指针esp)中堆栈的信息
 hash_proc//proc.c  把进程加到哈希表里
 get_pid//proc.c  为新进程创建一个pid
 wakup_proc//sched.c  通过将状态置为runable达到唤醒进程的目的
@@ -163,8 +163,8 @@ void proc_run(struct proc_struct *proc) {
 
 - 保存FL_IF(中断标志位intr_flag)并禁止中断
 - 将current指针指向将要执行的进程，设置`任务状态段ts`中特权态0下的栈顶指针`esp0`为将要执行线程(next)的内核栈栈顶，即next->kstack + KSTACKSIZE
-- 加载新的页表，设置CR3寄存器的值为`next->cr3`(由于lab4都是内核进程，所以这一步其实没用)
-- 调用switch_to进行切换
+- 加载新的页表，设置CR3寄存器的值为`next->cr3`，完成进程间的页表切换(由于lab4都是内核进程，所以这一步其实没用)
+- 调用switch_to进行切换，switch_to执行到`ret`后就算切换成功了
 - 当执行proc_run的进程恢复执行之后，恢复FL_IF
 
 ### 回答问题
