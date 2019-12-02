@@ -201,7 +201,7 @@ dup_mmap(struct mm_struct *to, struct mm_struct *from) {
 
         insert_vma_struct(to, nvma);
 
-        bool share = 0;
+        bool share = 1;
         if (copy_range(to->pgdir, from->pgdir, vma->vm_start, vma->vm_end, share) != 0) {
             return -E_NO_MEM;
         }
@@ -353,7 +353,7 @@ check_pgfault(void) {
     assert(sum == 0);
 
     page_remove(pgdir, ROUNDDOWN(addr, PGSIZE));
-    free_page(pde2page(pgdir[0]));
+    free_page(pa2page(pgdir[0]));
     pgdir[0] = 0;
 
     mm->pgdir = NULL;
@@ -403,6 +403,12 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     //check the error_code
     switch (error_code & 3) {
     default:
+        struct Page *page = pte2page(*ptep);   
+        struct Page *npage = pgdir_alloc_page(mm->pgdir, addr, perm);//????????
+        uintptr_t src_kvaddr = page2kva(page);//???????
+        uintptr_t dst_kvaddr = page2kva(npage);//???????
+        memcpy(dst_kvaddr, src_kvaddr, PGSIZE); //??
+        break;
             /* error code flag : default is 3 ( W/R=1, P=1): write, present */
     case 2: /* error code flag : (W/R=1, P=0): write, not present */
         if (!(vma->vm_flags & VM_WRITE)) {
@@ -426,12 +432,12 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
      *    continue process
      */
     uint32_t perm = PTE_U;
-    if (vma->vm_flags & VM_WRITE) {
-        perm |= PTE_W;
+    if (vma->vm_flags & VM_WRITE) {  //VM_WRITE   0x00000002
+        perm |= PTE_W;    //???
     }
     addr = ROUNDDOWN(addr, PGSIZE);
-
-    ret = -E_NO_MEM;
+    //????addr?PSIZE=4096???????
+    ret = -E_NO_MEM;//E_NO_MEM 4 ??????????
 
     pte_t *ptep=NULL;
     /*LAB3 EXERCISE 1: YOUR CODE
@@ -493,6 +499,31 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         }
    }
 #endif
+  // ???????????????PTE
+    //??3?create?1???????
+    ptep = get_pte(mm->pgdir, addr, 1); 
+    if (*ptep == 0) { 
+        // ?????????????(????)??????????
+        //addr???????rounddown??????
+        //perm ???PTE_W   PTE_U???????flag
+        struct Page* page = pgdir_alloc_page(mm->pgdir, addr, perm); 
+        // ?????????????????????
+    }  
+    else {
+        if (swap_init_ok) { // ?????????????
+            struct Page *page = NULL;
+            swap_in(mm, addr, &page); //??????????
+            page_insert(mm->pgdir, page, addr, perm); //??????????????
+            swap_map_swappable(mm, addr, page, 1); // ?????????????
+            page->pra_vaddr = addr; 
+            // ????????????????????
+            // pra_vaddr??????????????????        
+        } 
+        else {
+            cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
+            goto failed;
+        }
+    }
    ret = 0;
 failed:
     return ret;

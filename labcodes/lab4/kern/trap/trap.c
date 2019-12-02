@@ -48,6 +48,18 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+     //kern/mm/mmu.h中定义SETGATE
+     extern uintptr_t __vectors[];//(1)
+     for(int i=0;i<256;i++)//参考答案写的是sizeof(idt)/sizeof(struct gatedesc)但实际上值都一样答案更规范而已
+     {//arg1表示处理函数的入口地址，arg2为0表示中断门，arg3段选择子(GD_KTEXT定义在memlayout.h中)
+     //#define GD_KTEXT    ((SEG_KTEXT) << 3)       arg4为__vectors[]数组内容 arg5设置特权级。中断都设置为内核级，即第0级
+         SETGATE(idt[i],0,GD_KTEXT,__vectors[i],DPL_KERNEL);//(2)使用SETGATE宏初始化idt
+     }
+     //从用户态权限切换到内核态权限T_SWITCH_TOK   用户是OU
+    //  SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+     SETGATE(idt[T_SWITCH_TOK], 1, KERNEL_CS, __vectors[T_SWITCH_TOK], 3);
+     lidt(&idt_pd);//(3)用lidt指令告诉CPU idt在哪，idt_pd参数被定义在该文件开始，其结构pseudodesc被定义在libs/x86.h
+
 }
 
 static const char *

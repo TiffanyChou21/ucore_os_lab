@@ -44,29 +44,35 @@ _fifo_init_mm(struct mm_struct *mm)
 static int
 _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
 {
-    list_entry_t *head=(list_entry_t*) mm->sm_priv;
-    list_entry_t *entry=&(page->pra_page_link);
- 
+    list_entry_t *head=(list_entry_t*) mm->sm_priv;// 找到链表入口
+    list_entry_t *entry=&(page->pra_page_link);//找到当前物理页用于组织成链表的list_entry_t
     assert(entry != NULL && head != NULL);
     //record the page access situlation
     /*LAB3 EXERCISE 2: YOUR CODE*/ 
     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
+    list_add_before(head,entry); // 将当前指定的物理页插入到链表的末尾
     return 0;
 }
 /*
  *  (4)_fifo_swap_out_victim: According FIFO PRA, we should unlink the  earliest arrival page in front of pra_list_head qeueue,
- *                            then assign the value of *ptr_page to the addr of this page.
+ *                            then set the addr of addr of this page to ptr_page.
  */
 static int
 _fifo_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick)
 {
-     list_entry_t *head=(list_entry_t*) mm->sm_priv;
-         assert(head != NULL);
+     list_entry_t *head=(list_entry_t*) mm->sm_priv;// 找到链表的入口
+     assert(head != NULL);
      assert(in_tick==0);
      /* Select the victim */
      /*LAB3 EXERCISE 2: YOUR CODE*/ 
      //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
-     //(2)  assign the value of *ptr_page to the addr of this page
+     //(2)  set the addr of addr of this page to ptr_page
+     list_entry_t *le = list_next(head); // 取出链表头，即最先进入的物理页
+     assert(le != head); // 确保非空
+     //pra_page_link是Page结构中用来构造按第一次访问时间排序的链表
+     struct Page *page = le2page(le, pra_page_link);//找到其对应的物理页的Page结构
+     list_del(le); // 从链表上删除将被换出的物理页
+     *ptr_page = page;
      return 0;
 }
 
@@ -102,13 +108,6 @@ _fifo_check_swap(void) {
     cprintf("write Virt Page d in fifo_check_swap\n");
     *(unsigned char *)0x4000 = 0x0d;
     assert(pgfault_num==9);
-    cprintf("write Virt Page e in fifo_check_swap\n");
-    *(unsigned char *)0x5000 = 0x0e;
-    assert(pgfault_num==10);
-    cprintf("write Virt Page a in fifo_check_swap\n");
-    assert(*(unsigned char *)0x1000 == 0x0a);
-    *(unsigned char *)0x1000 = 0x0a;
-    assert(pgfault_num==11);
     return 0;
 }
 
