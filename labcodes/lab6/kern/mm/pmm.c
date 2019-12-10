@@ -375,6 +375,24 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
     }
     return NULL;          // (8) return page table entry
 #endif
+    pde_t *pdep = &pgdir[PDX(la)];//借助PDX获取directory的位置
+    //cprintf("%08x\n", *pdep & PTE_P);
+    if (!(*pdep & PTE_P)) {//不存在
+        struct Page *page;
+        if (!create || (page = alloc_page()) == NULL) {// 如果create位为0或无法分配则不创建
+            return NULL;
+        }
+        set_page_ref(page, 1);//设置页表引用次数+1
+        uintptr_t pa = page2pa(page);//得到该页的线性地址
+        memset(KADDR(pa), 0, PGSIZE);//页表的存储是虚拟所以先转到虚拟然后再clear内容初始化
+    //该页所代表的虚拟地址还没被映射
+    // 对原先的页目录项进行设置，包括设置其对应的页表的物理地址，以及包括存在位在内的标志位
+        *pdep = pa | PTE_U | PTE_W | PTE_P;
+    }
+    return &((pte_t *)KADDR(PDE_ADDR(*pdep)))[PTX(la)];//pt的虚拟地址
+    // 返回线性地址对应的页目录项
+    //KADDR返回Table所对应的线性地址，在查询完T二级页表前，都是虚拟地址
+    //最后返回的是虚拟地址la对应的页表项入口地址 
 }
 
 //get_page - get related Page struct for linear address la using PDT pgdir
@@ -420,6 +438,18 @@ page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep) {
                                   //(6) flush tlb
     }
 #endif
+    if (*ptep & PTE_P) //验证是否存在
+    {// 获取该页表项对应的物理页对应的Page结构
+        struct Page *page = pte2page(*ptep);
+        if (page_ref_dec(page) == 0) {
+            free_page(page);//减到0的时候free这个page
+            //即表示上一级页表只引用一次，页和对应的二级页表都直接free
+        }
+        //但如果有更多的页表引用了它，则不能释放这个页
+    	//则把对应二级页表的映射取消，即把传入的二级页表置为0
+        *ptep = 0;// 将PTE的存在位设置为0，表示该映射关系无效
+        tlb_invalidate(pgdir, la);//刷新TLB，保证TLB中的缓存不会有错误的映射关系
+    }
 }
 
 void
@@ -501,6 +531,11 @@ copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end, bool share) {
          * (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
          * (4) build the map of phy addr of  nage with the linear addr start
          */
+        // 找到父进程需要复制的物理页在内核地址空间中的虚拟地址，因为这个函数执行的时候用的是内核地址空间
+        uintptr_t src_kvaddr = page2kva(page);
+        uintptr_t dst_kvaddr = page2kva(npage);//找到子进程需要被填充的物理页的内核虚拟地址
+        memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
+        page_insert(to, npage, start, perm);//建立子进程的物理页与虚拟页的映射关系
         assert(ret == 0);
         }
         start += PGSIZE;

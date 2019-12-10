@@ -9,11 +9,11 @@ typedef struct {
 
 struct proc_struct;
 
-typedef struct {
-    struct proc_struct *proc;
-    uint32_t wakeup_flags;
-    wait_queue_t *wait_queue;
-    list_entry_t wait_link;
+typedef struct {   //用于等待队列的结构
+    struct proc_struct *proc;  //存放了当前等待的线程PCB
+    uint32_t wakeup_flags;   //唤醒原因 
+    wait_queue_t *wait_queue;//等待队列
+    list_entry_t wait_link;   //还原结构体的等待队列标志
 } wait_t;
 
 #define le2wait(le, member)         \

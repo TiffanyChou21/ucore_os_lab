@@ -66,17 +66,17 @@
 
 typedef struct monitor monitor_t;
 
-typedef struct condvar{
-    semaphore_t sem;        // the sem semaphore  is used to down the waiting proc, and the signaling proc should up the waiting proc
-    int count;              // the number of waiters on condvar
-    monitor_t * owner;      // the owner(monitor) of this condvar
+typedef struct condvar{// 条件变量数据结构
+    semaphore_t sem;  // 信号量，用于条件同步 用于发出wait操作的进程等待条件为真之前进入睡眠      // the sem semaphore  is used to down the waiting proc, and the signaling proc should up the waiting proc
+    int count; // 记录睡在 wait 操作的进程数(等待条件变量成真)             // the number of waiters on condvar
+    monitor_t * owner;    // 所属管程   // the owner(monitor) of this condvar
 } condvar_t;
 
-typedef struct monitor{
-    semaphore_t mutex;      // the mutex lock for going into the routines in monitor, should be initialized to 1
-    semaphore_t next;       // the next semaphore is used to down the signaling proc itself, and the other OR wakeuped waiting proc should wake up the sleeped signaling proc.
-    int next_count;         // the number of of sleeped signaling proc
-    condvar_t *cv;          // the condvars in monitor
+typedef struct monitor{// 管程数据结构
+    semaphore_t mutex;// 二值信号量 用来互斥访问管程      // the mutex lock for going into the routines in monitor, should be initialized to 1
+    semaphore_t next; // 用于 条件同步 用于发出signal操作的进程等条件为真之前进入睡眠      // the next semaphore is used to down the signaling proc itself, and the other OR wakeuped waiting proc should wake up the sleeped signaling proc.
+    int next_count;  // 记录睡在 signal 操作的进程数       // the number of of sleeped signaling proc
+    condvar_t *cv;  // 条件变量        // the condvars in monitor
 } monitor_t;
 
 // Initialize variables in monitor.

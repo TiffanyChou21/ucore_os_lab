@@ -119,6 +119,32 @@ alloc_proc(void) {
      *     uint32_t lab6_stride;                       // FOR LAB6 ONLY: the current stride of the process
      *     uint32_t lab6_priority;                     // FOR LAB6 ONLY: the priority of process, set by lab6_set_priority(uint32_t)
      */
+        proc->state = PROC_UNINIT; // 状态尚未初始化
+        proc->cr3 = boot_cr3;    //pmm.c
+        proc->pid = -1;      
+        proc->runs = 0; // 对其他成员变量清零处理
+        proc->kstack = 0;
+        proc->need_resched = 0;
+        proc->parent = NULL;
+        proc->mm = NULL;
+        memset(&proc->context, 0, sizeof(struct context)); 
+        // 使用memset函数清零占用空间较大的成员变量，如数组，结构体等
+        proc->tf = NULL;
+        proc->flags = 0;
+        memset(proc->name, 0, PROC_NAME_LEN);
+
+        proc->wait_state = 0; 
+        proc->cptr = proc->yptr = proc-> optr = NULL;
+        //父进程            弟弟进程       哥哥进程
+        proc->rq = NULL;
+        list_init(&(proc->run_link));
+        proc->time_slice = 0;
+    //    Stride Only
+        proc->lab6_run_pool.parent = proc->lab6_run_pool.left = proc->lab6_run_pool.right = NULL;
+        // 优先级 (和步进成反比)
+        proc->lab6_priority = 0;
+        // 步进值
+        proc->lab6_stride = 0;
     }
     return proc;
 }
@@ -413,7 +439,24 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
 	*    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
 	*    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
     */
-	
+   // 为新线程分配PCB
+    if ((proc = alloc_proc()) == NULL) 
+        goto fork_out; // 判断是否分配到内存空间
+    proc->parent = current;
+    assert(current->wait_state == 0);//New 确保当前进程正在等待    
+    assert(setup_kstack(proc) == 0);  
+    // 设置内核栈
+    assert(copy_mm(clone_flags, proc) == 0);  
+    // 对虚拟内存空间进行拷贝，lab4内核线程之间共享一个虚拟内存空间，所以并不需要进行任何操作
+    copy_thread(proc, stack, tf); 
+    // 在内核栈上面设置伪造好的tf，便于利用iret命令将控制权转移给新的线程
+    proc->pid = get_pid(); // 创建pid
+    hash_proc(proc); // 将线程放入使用hash表，加速查找
+    // nr_process ++; // 全局线程数加1  New
+    set_links(proc);//New     将原来的简单计数改成设置进程的相关链接
+    //list_add(&proc_list, &proc->list_link); //New  将线程加入链表
+    wakeup_proc(proc); // 唤醒线程，即将该线程的状态设置为可以运行
+    ret = proc->pid; // 返回新线程的pid	
 fork_out:
     return ret;
 
@@ -602,7 +645,7 @@ load_icode(unsigned char *binary, size_t size) {
 
     //(6) setup trapframe for user environment
     struct trapframe *tf = current->tf;
-    memset(tf, 0, sizeof(struct trapframe));
+    memset(tf, 0, sizeof(struct trapframe));   //清空进程原先的中断帧 
     /* LAB5:EXERCISE1 YOUR CODE
      * should set tf_cs,tf_ds,tf_es,tf_ss,tf_esp,tf_eip,tf_eflags
      * NOTICE: If we set trapframe correctly, then the user level process can return to USER MODE from kernel. So
@@ -612,6 +655,11 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf_eip should be the entry point of this binary program (elf->e_entry)
      *          tf_eflags should be set to enable computer to produce Interrupt
      */
+    tf->tf_cs = USER_CS;    //中断帧的代码段和数据段分别设置为用户态的段选择子
+    tf->tf_ds = tf->tf_es = tf->tf_ss = USER_DS;
+    tf->tf_esp = USTACKTOP;      //esp指向先前创建的用户栈栈顶；
+    tf->tf_eip = elf->e_entry;    //eip指向ELF可执行文件加载到内存之后的入口处
+    tf->tf_eflags = 0x00000002 | FL_IF; // eflags初始化为中断，保证可以响应中断
     ret = 0;
 out:
     return ret;
