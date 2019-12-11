@@ -7,4 +7,5 @@ Lab Report
 - [Lab5](https://github.com/TiffanyChou21/ucore_os_lab/blob/master/labcodes/lab5/1712991_周辰霏_OS-Lab5.pdf)
 - [Lab6](https://github.com/TiffanyChou21/ucore_os_lab/blob/master/labcodes/lab6/1712991_周辰霏_OS-Lab6.pdf)
 - [Lab7](https://github.com/TiffanyChou21/ucore_os_lab/blob/master/labcodes/lab7/1712991_周辰霏_OS-Lab7.pdf)
+- [Lab8](https://github.com/TiffanyChou21/ucore_os_lab/blob/master/labcodes/lab8/1712991_周辰霏_OS-Lab8.pdf)
 
